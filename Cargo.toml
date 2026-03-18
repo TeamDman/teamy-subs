@@ -1,0 +1,73 @@
+[workspace]
+members = ["crates/teamy-facet-vtt", "crates/teamy-subs-cli"]
+resolver = "3"
+
+[package]
+name = "teamy-subs"
+version = "0.1.0"
+edition = "2024"
+authors = ["TeamDman"]
+description = "CLI utilities for downloading, extracting, and converting subtitles"
+license = "MPL-2.0"
+readme = "README.md"
+repository = "https://github.com/TeamDman/teamy-subs"
+keywords = ["cli","subtitles","ffmpeg","yt-dlp"]
+categories = ["command-line-utilities"]
+documentation = "https://github.com/TeamDman/teamy-subs" # "https://docs.rs/crate/abc"
+
+[dependencies]
+eyre = "0.6.12"
+teamy-subs-cli = { path = "crates/teamy-subs-cli" }
+
+[dev-dependencies]
+figue = { git = "https://github.com/TeamDman/figue", rev = "0e82172c21e9ce0ecc4521ff01f6dbf56342867f", features = ["arbitrary"] }
+
+[features]
+default = []
+tracy = ["teamy-subs-cli/tracy"]
+
+[build-dependencies]
+embed-resource = "3.0.6"
+
+[lints.rust]
+ambiguous_negative_literals = "warn"
+missing_debug_implementations = "warn"
+redundant_imports = "warn"
+redundant_lifetimes = "warn"
+trivial_numeric_casts = "warn"
+unsafe_op_in_unsafe_fn = "warn"
+unused_lifetimes = "warn"
+
+[lints.clippy]
+cargo = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+correctness = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
+multiple_crate_versions = "allow" # turn this off periodically to see how bad it has gotten :P
+# nursery = { level = "warn", priority = -1 }  # optional, might cause more false positives
+multiple_unsafe_ops_per_block = "deny"
+module_inception = "allow"
+allow_attributes = "deny"
+# allow_attributes_without_reason = "warn"
+as_pointer_underscore = "warn"
+assertions_on_result_states = "warn"
+clone_on_ref_ptr = "warn"
+deref_by_slicing = "warn"
+disallowed_script_idents = "allow" # facet macros use Unicode identifiers
+empty_drop = "warn"
+empty_enum_variants_with_brackets = "warn"
+empty_structs_with_brackets = "warn"
+fn_to_numeric_cast_any = "warn"
+if_then_some_else_none = "warn"
+map_err_ignore = "warn"
+redundant_type_annotations = "warn"
+renamed_function_params = "warn"
+semicolon_outside_block = "warn"
+undocumented_unsafe_blocks = "warn"
+unnecessary_safety_comment = "warn"
+unnecessary_safety_doc = "warn"
+unneeded_field_pattern = "warn"
+unused_result_ok = "warn"

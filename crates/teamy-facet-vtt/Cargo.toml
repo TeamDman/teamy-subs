@@ -1,0 +1,11 @@
+[package]
+name = "teamy-facet-vtt"
+version = "0.1.0"
+edition = "2024"
+authors = ["TeamDman"]
+license = "MPL-2.0"
+repository = "https://github.com/TeamDman/teamy-subs"
+description = "Facet-native subtitle data shapes for WebVTT and TXT"
+
+[dependencies]
+facet = "0.44.1"
