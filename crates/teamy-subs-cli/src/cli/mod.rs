@@ -1,16 +1,9 @@
-#[path = "../../../../src/cli/cache/mod.rs"]
 pub mod cache;
-#[path = "../../../../src/cli/convert/mod.rs"]
 pub mod convert;
-#[path = "../../../../src/cli/download/mod.rs"]
 pub mod download;
-#[path = "../../../../src/cli/extract/mod.rs"]
 pub mod extract;
-#[path = "../../../../src/cli/facet_shape.rs"]
 pub mod facet_shape;
-#[path = "../../../../src/cli/global_args.rs"]
 pub mod global_args;
-#[path = "../../../../src/cli/home/mod.rs"]
 pub mod home;
 
 use crate::cli::cache::CacheArgs;
