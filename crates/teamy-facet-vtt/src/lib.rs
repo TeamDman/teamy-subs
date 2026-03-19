@@ -219,11 +219,150 @@ pub struct TxtDocument {
     pub lines: Vec<TxtLine>,
 }
 
+impl TxtDocument {
+    /// Build a readable TXT document from cue text chunks, applying overlap removal.
+    #[must_use]
+    pub fn from_cue_texts<I, S>(cue_texts: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let mut result = String::new();
+
+        for cue_text in cue_texts {
+            let cue_text = cue_text.as_ref();
+            if cue_text.is_empty() {
+                continue;
+            }
+
+            let overlap = longest_char_boundary_overlap(&result, cue_text);
+            if overlap == 0 && should_insert_separator(&result, cue_text) {
+                result.push('\n');
+            }
+            result.push_str(&cue_text[overlap..]);
+        }
+
+        Self {
+            lines: result
+                .lines()
+                .map(|line| TxtLine {
+                    timestamp: None,
+                    text: line.to_string(),
+                })
+                .collect(),
+        }
+    }
+
+    /// Render this document as newline-delimited readable text.
+    #[must_use]
+    pub fn to_plain_text(&self) -> String {
+        self.lines
+            .iter()
+            .map(|line| line.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
 /// A single TXT line with optional coarse timestamp metadata.
 #[derive(Facet, Debug, Clone, PartialEq, Eq)]
 pub struct TxtLine {
     pub timestamp: Option<VttTimestamp>,
     pub text: String,
+}
+
+/// Parse a raw cue payload into semantic fragments.
+#[must_use]
+pub fn parse_payload_fragments(payload: &str) -> Vec<VttCueFragment> {
+    let mut fragments = Vec::new();
+    let mut rest = payload;
+
+    while let Some(start_index) = rest.find('<') {
+        if start_index > 0 {
+            let literal = &rest[..start_index];
+            if !literal.trim().is_empty() {
+                fragments.push(VttCueFragment::Text(literal.to_string()));
+            }
+        }
+
+        rest = &rest[start_index..];
+
+        if let Some(end_index) = rest.find('>') {
+            let tag_content = &rest[1..end_index];
+            if let Ok(timestamp) = VttTimestamp::from_str(tag_content) {
+                rest = &rest[end_index + 1..];
+                if rest.starts_with("<c>") {
+                    if let Some(close_index) = rest.find("</c>") {
+                        let text = &rest[3..close_index];
+                        fragments.push(VttCueFragment::TimestampedText {
+                            timestamp,
+                            text: text.to_string(),
+                        });
+                        rest = &rest[close_index + 4..];
+                    } else {
+                        fragments.push(VttCueFragment::Text(rest.to_string()));
+                        break;
+                    }
+                } else {
+                    fragments.push(VttCueFragment::TimestampedText {
+                        timestamp,
+                        text: String::new(),
+                    });
+                }
+            } else {
+                fragments.push(VttCueFragment::Text("<".to_string()));
+                rest = &rest[1..];
+            }
+        } else {
+            fragments.push(VttCueFragment::Text(rest.to_string()));
+            break;
+        }
+    }
+
+    if !rest.trim().is_empty() {
+        fragments.push(VttCueFragment::Text(rest.to_string()));
+    }
+
+    fragments
+}
+
+/// Convert a raw cue payload into readable plain text.
+#[must_use]
+pub fn cue_payload_plain_text(payload: &str) -> String {
+    parse_payload_fragments(payload)
+        .into_iter()
+        .map(|fragment| match fragment {
+            VttCueFragment::Text(text) | VttCueFragment::TimestampedText { text, .. } => text,
+            VttCueFragment::RawTag(tag) => tag,
+        })
+        .collect()
+}
+
+fn longest_char_boundary_overlap(existing: &str, incoming: &str) -> usize {
+    let mut valid_indices = incoming
+        .char_indices()
+        .map(|(index, _)| index)
+        .collect::<Vec<usize>>();
+    valid_indices.push(incoming.len());
+
+    for &index in valid_indices.iter().rev() {
+        if existing.ends_with(&incoming[..index]) {
+            return index;
+        }
+    }
+
+    0
+}
+
+fn should_insert_separator(existing: &str, incoming: &str) -> bool {
+    let Some(existing_last) = existing.chars().last() else {
+        return false;
+    };
+    let Some(incoming_first) = incoming.chars().next() else {
+        return false;
+    };
+
+    !existing_last.is_whitespace() && !incoming_first.is_whitespace()
 }
 
 #[cfg(test)]
@@ -281,5 +420,19 @@ mod tests {
 
         assert_eq!(document.blocks.len(), 1);
         assert_eq!(txt.lines.len(), 1);
+    }
+
+    #[test]
+    fn payload_plain_text_strips_timed_markup() {
+        assert_eq!(
+            cue_payload_plain_text("when<00:00:00.199><c> I</c><00:00:00.280><c> started</c>"),
+            "when I started"
+        );
+    }
+
+    #[test]
+    fn txt_document_from_cues_deduplicates_overlap() {
+        let txt = TxtDocument::from_cue_texts(["hello", "hello world", "world again"]);
+        assert_eq!(txt.to_plain_text(), "hello world again");
     }
 }

@@ -9,7 +9,8 @@ use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
-use teamy_facet_vtt::VttTimestamp;
+use teamy_facet_vtt::TxtDocument;
+use teamy_facet_vtt::cue_payload_plain_text;
 use vtt::prelude::WebVtt;
 
 /// Convert subtitle files into other formats.
@@ -137,7 +138,7 @@ fn convert_vtt_content_to_text_fallback(content: &str) -> Result<String> {
         index += 1;
     }
 
-    Ok(deduplicated_cue_texts(cue_texts))
+    Ok(TxtDocument::from_cue_texts(cue_texts).to_plain_text())
 }
 
 fn normalize_vtt_content(content: &str) -> String {
@@ -205,139 +206,13 @@ fn skip_blank_lines(lines: &[&str], mut index: usize) -> usize {
     index
 }
 
-fn deduplicated_cue_texts(cue_texts: Vec<String>) -> String {
-    let mut result = String::new();
-
-    for cue_text in cue_texts {
-        if cue_text.is_empty() {
-            continue;
-        }
-
-        let overlap = longest_char_boundary_overlap(&result, &cue_text);
-        if overlap == 0 && should_insert_separator(&result, &cue_text) {
-            result.push('\n');
-        }
-        result.push_str(&cue_text[overlap..]);
-    }
-
-    result
-}
-
 fn deduplicated_text(vtt: &WebVtt) -> String {
-    let mut result = String::new();
-
-    for cue in &vtt.cues {
-        let cue_text = cue_payload_plain_text(&cue.payload);
-        if cue_text.is_empty() {
-            continue;
-        }
-
-        let overlap = longest_char_boundary_overlap(&result, &cue_text);
-        if overlap == 0 && should_insert_separator(&result, &cue_text) {
-            result.push('\n');
-        }
-        result.push_str(&cue_text[overlap..]);
-    }
-
-    result
-}
-
-fn cue_payload_plain_text(payload: &str) -> String {
-    parse_cue_payload(payload)
-        .into_iter()
-        .map(|fragment| match fragment {
-            CueTextFragment::Text(text) | CueTextFragment::TimedText { text, .. } => text,
-        })
-        .collect()
-}
-
-fn parse_cue_payload(payload: &str) -> Vec<CueTextFragment> {
-    let mut fragments = Vec::new();
-    let mut rest = payload;
-
-    while let Some(start_idx) = rest.find('<') {
-        if start_idx > 0 {
-            let literal = &rest[..start_idx];
-            if !literal.trim().is_empty() {
-                fragments.push(CueTextFragment::Text(literal.to_string()));
-            }
-        }
-
-        rest = &rest[start_idx..];
-
-        if let Some(end_idx) = rest.find('>') {
-            let tag_content = &rest[1..end_idx];
-            if let Ok(timestamp) = VttTimestamp::from_str(tag_content) {
-                rest = &rest[end_idx + 1..];
-                if rest.starts_with("<c>") {
-                    if let Some(close_idx) = rest.find("</c>") {
-                        let text = &rest[3..close_idx];
-                        fragments.push(CueTextFragment::TimedText {
-                            timestamp,
-                            text: text.to_string(),
-                        });
-                        rest = &rest[close_idx + 4..];
-                    } else {
-                        fragments.push(CueTextFragment::Text(rest.to_string()));
-                        break;
-                    }
-                } else {
-                    fragments.push(CueTextFragment::TimedText {
-                        timestamp,
-                        text: String::new(),
-                    });
-                }
-            } else {
-                fragments.push(CueTextFragment::Text("<".to_string()));
-                rest = &rest[1..];
-            }
-        } else {
-            fragments.push(CueTextFragment::Text(rest.to_string()));
-            break;
-        }
-    }
-
-    if !rest.trim().is_empty() {
-        fragments.push(CueTextFragment::Text(rest.to_string()));
-    }
-
-    fragments
-}
-
-fn longest_char_boundary_overlap(existing: &str, incoming: &str) -> usize {
-    let mut valid_indices = incoming
-        .char_indices()
-        .map(|(index, _)| index)
-        .collect::<Vec<usize>>();
-    valid_indices.push(incoming.len());
-
-    for &index in valid_indices.iter().rev() {
-        if existing.ends_with(&incoming[..index]) {
-            return index;
-        }
-    }
-
-    0
-}
-
-fn should_insert_separator(existing: &str, incoming: &str) -> bool {
-    let Some(existing_last) = existing.chars().last() else {
-        return false;
-    };
-    let Some(incoming_first) = incoming.chars().next() else {
-        return false;
-    };
-
-    !existing_last.is_whitespace() && !incoming_first.is_whitespace()
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum CueTextFragment {
-    Text(String),
-    TimedText {
-        timestamp: VttTimestamp,
-        text: String,
-    },
+    TxtDocument::from_cue_texts(
+        vtt.cues
+            .iter()
+            .map(|cue| cue_payload_plain_text(&cue.payload)),
+    )
+    .to_plain_text()
 }
 
 #[cfg(test)]

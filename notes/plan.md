@@ -8,6 +8,7 @@ DRAFT: Reframe `teamy-subs` as a small workspace with a thin CLI crate, a subtit
 - [x] Step 1 bridge: root `teamy-subs` now delegates through `teamy-subs-cli` while keeping the installed binary/package name stable
 - [x] Step 3 started: added Tracey configuration and initial spec partition files for CLI, VTT, TXT, and conversions
 - [x] Step 5 started: added `teamy-facet-vtt` with foundational subtitle shape types and a reusable `VttTimestamp`
+- [x] Step 5 progressed: moved readable cue payload parsing and TXT projection helpers into `teamy-facet-vtt`
 - [x] Validation: `cargo test --workspace` passes after the initial workspace split
 - [ ] Current implementation still depends on external `vtt`, `serde`, and `serde_json` inside `teamy-subs-cli`; removal is still pending
 - [ ] Source files are temporarily shared into `teamy-subs-cli` via `#[path = ...]` bridging; physical relocation is still pending
