@@ -20,8 +20,6 @@ tokio = { version = "1.49.0", features = ["full"] }
 facet = "0.44.1"
 figue = { git = "https://github.com/TeamDman/figue", rev = "0e82172c21e9ce0ecc4521ff01f6dbf56342867f", features = ["arbitrary"] }
 open = "5"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
 teamy-facet-vtt = { path = "../teamy-facet-vtt" }
 
 [target.'cfg(windows)'.dependencies]

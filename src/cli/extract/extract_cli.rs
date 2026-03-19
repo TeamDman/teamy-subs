@@ -4,7 +4,6 @@ use eyre::Result;
 use eyre::bail;
 use facet::Facet;
 use figue::{self as args};
-use serde::Deserialize;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
@@ -103,20 +102,19 @@ impl ExtractArgs {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default)]
 struct FfprobeResponse {
-    #[serde(default)]
     streams: Vec<FfprobeStream>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default)]
 struct FfprobeStream {
     index: usize,
     codec_name: Option<String>,
     tags: Option<FfprobeTags>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default)]
 struct FfprobeTags {
     language: Option<String>,
     title: Option<String>,
@@ -143,7 +141,7 @@ fn probe_subtitle_streams(input_file: &Path) -> Result<Vec<FfprobeStream>> {
         .arg("-show_entries")
         .arg("stream=index,codec_name:stream_tags=language,title")
         .arg("-of")
-        .arg("json")
+        .arg("default=noprint_wrappers=1:nokey=0")
         .arg(input_file)
         .output()
         .wrap_err(
@@ -157,8 +155,71 @@ fn probe_subtitle_streams(input_file: &Path) -> Result<Vec<FfprobeStream>> {
         );
     }
 
-    let response: FfprobeResponse =
-        serde_json::from_slice(&output.stdout).wrap_err("Failed to parse ffprobe JSON output")?;
+    parse_ffprobe_streams(&String::from_utf8_lossy(&output.stdout))
+}
+
+fn parse_ffprobe_streams(output: &str) -> Result<Vec<FfprobeStream>> {
+    let mut response = FfprobeResponse::default();
+    let mut current = FfprobeStream::default();
+    let mut saw_field = false;
+
+    for raw_line in output.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() {
+            if saw_field {
+                if current.index == 0 {
+                    bail!("ffprobe output was missing a stream index");
+                }
+                response.streams.push(std::mem::take(&mut current));
+                saw_field = false;
+            }
+
+            continue;
+        }
+
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+
+        saw_field = true;
+        match key {
+            "index" => {
+                current.index = value
+                    .parse::<usize>()
+                    .wrap_err_with(|| format!("Invalid ffprobe stream index: {value}"))?;
+            }
+            "codec_name" => {
+                current.codec_name = if value.is_empty() {
+                    None
+                } else {
+                    Some(value.to_string())
+                };
+            }
+            "TAG:language" => {
+                current.tags.get_or_insert_with(Default::default).language = if value.is_empty() {
+                    None
+                } else {
+                    Some(value.to_string())
+                };
+            }
+            "TAG:title" => {
+                current.tags.get_or_insert_with(Default::default).title = if value.is_empty() {
+                    None
+                } else {
+                    Some(value.to_string())
+                };
+            }
+            _ => {}
+        }
+    }
+
+    if saw_field {
+        if current.index == 0 {
+            bail!("ffprobe output was missing a stream index");
+        }
+        response.streams.push(current);
+    }
+
     Ok(response.streams)
 }
 
@@ -297,5 +358,22 @@ mod tests {
             sanitize_filename_component("English (SDH) / Main"),
             "english-sdh-main"
         );
+    }
+
+    #[test]
+    fn parses_default_ffprobe_stream_listing() {
+        let streams = parse_ffprobe_streams(
+            "index=2\ncodec_name=webvtt\nTAG:language=eng\nTAG:title=English SDH\n\nindex=4\ncodec_name=subrip\nTAG:language=jpn\n",
+        )
+        .unwrap();
+
+        assert_eq!(streams.len(), 2);
+        assert_eq!(streams[0].index, 2);
+        assert_eq!(streams[0].codec_name.as_deref(), Some("webvtt"));
+        assert_eq!(streams[0].tags.as_ref().and_then(|tags| tags.language.as_deref()), Some("eng"));
+        assert_eq!(streams[0].tags.as_ref().and_then(|tags| tags.title.as_deref()), Some("English SDH"));
+        assert_eq!(streams[1].index, 4);
+        assert_eq!(streams[1].codec_name.as_deref(), Some("subrip"));
+        assert_eq!(streams[1].tags.as_ref().and_then(|tags| tags.language.as_deref()), Some("jpn"));
     }
 }
