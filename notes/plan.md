@@ -13,6 +13,7 @@ DRAFT: Reframe `teamy-subs` as a small workspace with a thin CLI crate, a subtit
 - [x] Step 9 progressed: `teamy-subs-cli` no longer depends on `serde` / `serde_json` for ffprobe subtitle extraction
 - [x] Step 1 progressed again: `teamy-subs-cli` now owns local `logging_init` and `paths` modules instead of bridging them from the root source tree
 - [x] Step 1 completed: the root `src/` subtree no longer contains duplicated CLI implementation modules
+- [x] Regression coverage added from a real yt-dlp WebVTT sample with blank-line-separated cue payloads
 - [x] Validation: `cargo test --workspace` passes after the initial workspace split
 
 ## Current checkpoint notes

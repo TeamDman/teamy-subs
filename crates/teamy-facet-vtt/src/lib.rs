@@ -610,6 +610,31 @@ fn is_header_metadata_line(line: &str) -> bool {
     line.split_once(':').is_some()
 }
 
+fn is_block_header_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed == "STYLE" || trimmed == "REGION" || trimmed.starts_with("NOTE")
+}
+
+fn is_cue_start_line(lines: &[&str], index: usize) -> bool {
+    if index >= lines.len() {
+        return false;
+    }
+
+    let current = lines[index].trim();
+    if current.is_empty() || is_block_header_line(current) {
+        return false;
+    }
+
+    current.contains("-->") || (index + 1 < lines.len() && lines[index + 1].trim().contains("-->"))
+}
+
+fn skip_blank_lines(lines: &[&str], mut index: usize) -> usize {
+    while index < lines.len() && lines[index].trim().is_empty() {
+        index += 1;
+    }
+    index
+}
+
 fn parse_block(lines: &[&str], index: usize) -> Result<(VttBlock, usize), VttParseError> {
     let line = lines[index].trim_end();
     let trimmed = line.trim();
@@ -678,10 +703,31 @@ fn parse_cue_block(
     next += 1;
 
     let mut payload_lines = Vec::new();
-    while next < lines.len() && !lines[next].trim().is_empty() {
+    let mut saw_payload_content = false;
+
+    while next < lines.len() {
+        if is_cue_start_line(lines, next) || is_block_header_line(lines[next]) {
+            break;
+        }
+
+        if lines[next].trim().is_empty() {
+            let next_non_blank = skip_blank_lines(lines, next);
+            if next_non_blank >= lines.len() || is_cue_start_line(lines, next_non_blank) {
+                next = next_non_blank;
+                break;
+            }
+
+            if saw_payload_content {
+                payload_lines.push(VttCuePayloadLine::default());
+            }
+            next = next_non_blank;
+            continue;
+        }
+
         payload_lines.push(VttCuePayloadLine {
             fragments: parse_payload_fragments(lines[next]),
         });
+        saw_payload_content = true;
         next += 1;
     }
 
@@ -896,5 +942,17 @@ mod tests {
     fn txt_document_from_cues_deduplicates_overlap() {
         let txt = TxtDocument::from_cue_texts(["hello", "hello world", "world again"]);
         assert_eq!(txt.to_plain_text(), "hello world again");
+    }
+
+    #[test]
+    fn parses_ytdlp_caption_sample_with_blank_line_between_timing_and_payload() {
+        let document = VttDocument::parse(
+            "WEBVTT\nKind: captions\nLanguage: en\n\n00:00:07.200 --> 00:00:09.190 align:start position:0%\n\nhello<00:00:07.919><c> everyone</c>\n\n00:00:09.190 --> 00:00:09.200 align:start position:0%\nhello everyone\n",
+        )
+        .unwrap();
+
+        assert_eq!(document.header.metadata.len(), 2);
+        assert_eq!(document.blocks.len(), 2);
+        assert_eq!(document.deduplicated_text(), "hello everyone");
     }
 }

@@ -148,4 +148,20 @@ mod tests {
         assert_eq!(vtt.deduplicated_text(), "Hello world");
     }
 
+
+    #[test]
+    fn converts_real_ytdlp_sample_with_blank_lines_between_timing_and_payload() {
+        let temp_dir = std::env::temp_dir();
+        let input_path = temp_dir.join("teamy-subs-ytdlp-sample.vtt");
+        fs::write(
+            &input_path,
+            "WEBVTT\nKind: captions\nLanguage: en\n\n00:00:07.200 --> 00:00:09.190 align:start position:0%\n\nhello<00:00:07.919><c> everyone</c>\n\n00:00:09.190 --> 00:00:09.200 align:start position:0%\nhello everyone\n",
+        )
+        .unwrap();
+
+        let output = convert_vtt_to_text(&input_path).unwrap();
+        assert_eq!(output, "hello everyone");
+
+        let _ = fs::remove_file(input_path);
+    }
 }
