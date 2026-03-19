@@ -117,11 +117,140 @@ fn parse_seconds_ms(seconds_str: &str) -> Result<(u64, u64), VttTimestampParseEr
     }
 }
 
+/// Parse failures for a WebVTT document.
+#[derive(Facet, Debug, Clone, PartialEq, Eq)]
+#[repr(u8)]
+pub enum VttParseError {
+    MissingHeader,
+    InvalidFormat(String),
+    InvalidCueTiming(String),
+    InvalidCueBlock(String),
+    InvalidTimestamp(VttTimestampParseError),
+}
+
+impl fmt::Display for VttParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MissingHeader => write!(f, "missing WEBVTT header"),
+            Self::InvalidFormat(message) => write!(f, "invalid format: {message}"),
+            Self::InvalidCueTiming(message) => write!(f, "invalid cue timing: {message}"),
+            Self::InvalidCueBlock(message) => write!(f, "invalid cue block: {message}"),
+            Self::InvalidTimestamp(error) => write!(f, "invalid timestamp: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for VttParseError {}
+
 /// A full WebVTT document shape.
 #[derive(Facet, Debug, Clone, PartialEq, Eq, Default)]
 pub struct VttDocument {
     pub header: VttHeader,
     pub blocks: Vec<VttBlock>,
+}
+
+impl VttDocument {
+    /// Parse a WebVTT document from text.
+    pub fn parse(content: &str) -> Result<Self, VttParseError> {
+        let content = normalize_document_content(content);
+        let lines = content.lines().collect::<Vec<_>>();
+
+        let Some(first_line) = lines.first() else {
+            return Err(VttParseError::MissingHeader);
+        };
+        let first_line = strip_bom(first_line).trim();
+        if !first_line.starts_with("WEBVTT") {
+            return Err(VttParseError::MissingHeader);
+        }
+
+        let mut header = VttHeader::default();
+        if first_line.len() > 6 {
+            let description = first_line[6..].trim();
+            if !description.is_empty() {
+                header.description = Some(description.to_string());
+            }
+        }
+
+        let mut index = 1;
+        while index < lines.len() {
+            let line = lines[index].trim();
+            if line.is_empty() {
+                index += 1;
+                break;
+            }
+
+            if !is_header_metadata_line(line) {
+                break;
+            }
+
+            let Some((key, value)) = line.split_once(':') else {
+                return Err(VttParseError::InvalidFormat(format!(
+                    "invalid header metadata line: {line}"
+                )));
+            };
+            header.metadata.push(VttMetadataEntry {
+                key: key.trim().to_string(),
+                value: value.trim().to_string(),
+            });
+            index += 1;
+        }
+
+        let mut blocks = Vec::new();
+        while index < lines.len() {
+            while index < lines.len() && lines[index].trim().is_empty() {
+                index += 1;
+            }
+            if index >= lines.len() {
+                break;
+            }
+
+            let (block, next_index) = parse_block(&lines, index)?;
+            blocks.push(block);
+            index = next_index;
+        }
+
+        Ok(Self { header, blocks })
+    }
+
+    /// Return the human-readable text projection for this document.
+    #[must_use]
+    pub fn deduplicated_text(&self) -> String {
+        TxtDocument::from_cue_texts(self.blocks.iter().filter_map(|block| match block {
+            VttBlock::Cue(cue) => Some(cue.payload_plain_text()),
+            _ => None,
+        }))
+        .to_plain_text()
+    }
+}
+
+impl FromStr for VttDocument {
+    type Err = VttParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s)
+    }
+}
+
+impl fmt::Display for VttDocument {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.header)?;
+
+        if !self.blocks.is_empty() {
+            writeln!(f)?;
+            writeln!(f)?;
+        }
+
+        for (index, block) in self.blocks.iter().enumerate() {
+            if index > 0 {
+                writeln!(f)?;
+                writeln!(f)?;
+            }
+
+            write!(f, "{block}")?;
+        }
+
+        Ok(())
+    }
 }
 
 /// Header data for a WebVTT document.
@@ -131,11 +260,34 @@ pub struct VttHeader {
     pub metadata: Vec<VttMetadataEntry>,
 }
 
+impl fmt::Display for VttHeader {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(description) = self.description.as_ref() {
+            write!(f, "WEBVTT {description}")?;
+        } else {
+            write!(f, "WEBVTT")?;
+        }
+
+        for entry in &self.metadata {
+            writeln!(f)?;
+            write!(f, "{}: {}", entry.key, entry.value)?;
+        }
+
+        Ok(())
+    }
+}
+
 /// A metadata key/value pair in the VTT header.
 #[derive(Facet, Debug, Clone, PartialEq, Eq)]
 pub struct VttMetadataEntry {
     pub key: String,
     pub value: String,
+}
+
+impl fmt::Display for VttMetadataEntry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {}", self.key, self.value)
+    }
 }
 
 /// A top-level block in a WebVTT file.
@@ -148,10 +300,31 @@ pub enum VttBlock {
     Cue(VttCue),
 }
 
+impl fmt::Display for VttBlock {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Note(block) => write!(f, "{block}"),
+            Self::Style(block) => write!(f, "{block}"),
+            Self::Region(block) => write!(f, "{block}"),
+            Self::Cue(cue) => write!(f, "{cue}"),
+        }
+    }
+}
+
 /// A NOTE block.
 #[derive(Facet, Debug, Clone, PartialEq, Eq)]
 pub struct VttNoteBlock {
     pub lines: Vec<String>,
+}
+
+impl fmt::Display for VttNoteBlock {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "NOTE")?;
+        for line in &self.lines {
+            writeln!(f, "{line}")?;
+        }
+        Ok(())
+    }
 }
 
 /// A STYLE block.
@@ -160,10 +333,30 @@ pub struct VttStyleBlock {
     pub css: Vec<String>,
 }
 
+impl fmt::Display for VttStyleBlock {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "STYLE")?;
+        for line in &self.css {
+            writeln!(f, "{line}")?;
+        }
+        Ok(())
+    }
+}
+
 /// A REGION block.
 #[derive(Facet, Debug, Clone, PartialEq, Eq)]
 pub struct VttRegionBlock {
     pub lines: Vec<String>,
+}
+
+impl fmt::Display for VttRegionBlock {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "REGION")?;
+        for line in &self.lines {
+            writeln!(f, "{line}")?;
+        }
+        Ok(())
+    }
 }
 
 /// A cue in a WebVTT document.
@@ -174,12 +367,48 @@ pub struct VttCue {
     pub payload: VttCuePayload,
 }
 
+impl VttCue {
+    /// Return the readable plain-text projection of the cue payload.
+    #[must_use]
+    pub fn payload_plain_text(&self) -> String {
+        self.payload.plain_text()
+    }
+}
+
+impl fmt::Display for VttCue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(identifier) = self.identifier.as_ref() {
+            writeln!(f, "{identifier}")?;
+        }
+
+        write!(f, "{}", self.timing)?;
+        if !self.payload.lines.is_empty() {
+            writeln!(f)?;
+            write!(f, "{}", self.payload)?;
+        }
+
+        Ok(())
+    }
+}
+
 /// Timing and settings for a cue.
 #[derive(Facet, Debug, Clone, PartialEq, Eq)]
 pub struct VttCueTiming {
     pub start: VttTimestamp,
     pub end: VttTimestamp,
     pub settings: Vec<VttCueSetting>,
+}
+
+impl fmt::Display for VttCueTiming {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} --> {}", self.start, self.end)?;
+
+        for setting in &self.settings {
+            write!(f, " {setting}")?;
+        }
+
+        Ok(())
+    }
 }
 
 /// A single cue setting token.
@@ -189,16 +418,81 @@ pub struct VttCueSetting {
     pub value: String,
 }
 
+impl fmt::Display for VttCueSetting {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.value.is_empty() {
+            write!(f, "{}", self.key)
+        } else {
+            write!(f, "{}:{}", self.key, self.value)
+        }
+    }
+}
+
 /// A cue payload broken into lines and fragments.
 #[derive(Facet, Debug, Clone, PartialEq, Eq, Default)]
 pub struct VttCuePayload {
     pub lines: Vec<VttCuePayloadLine>,
 }
 
+impl VttCuePayload {
+    /// Convert this payload to plain text.
+    #[must_use]
+    pub fn plain_text(&self) -> String {
+        self.lines
+            .iter()
+            .map(|line| {
+                line.fragments
+                    .iter()
+                    .map(|fragment| match fragment {
+                        VttCueFragment::Text(text)
+                        | VttCueFragment::TimestampedText { text, .. }
+                        | VttCueFragment::RawTag(text) => text.as_str(),
+                    })
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
+impl From<&str> for VttCuePayload {
+    fn from(value: &str) -> Self {
+        let lines = value
+            .lines()
+            .map(|line| VttCuePayloadLine {
+                fragments: parse_payload_fragments(line),
+            })
+            .collect();
+
+        Self { lines }
+    }
+}
+
+impl fmt::Display for VttCuePayload {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (index, line) in self.lines.iter().enumerate() {
+            if index > 0 {
+                writeln!(f)?;
+            }
+            write!(f, "{line}")?;
+        }
+        Ok(())
+    }
+}
+
 /// One rendered line from a cue payload.
 #[derive(Facet, Debug, Clone, PartialEq, Eq, Default)]
 pub struct VttCuePayloadLine {
     pub fragments: Vec<VttCueFragment>,
+}
+
+impl fmt::Display for VttCuePayloadLine {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for fragment in &self.fragments {
+            write!(f, "{fragment}")?;
+        }
+        Ok(())
+    }
 }
 
 /// A semantic cue payload fragment.
@@ -211,6 +505,16 @@ pub enum VttCueFragment {
         text: String,
     },
     RawTag(String),
+}
+
+impl fmt::Display for VttCueFragment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Text(text) => write!(f, "{text}"),
+            Self::TimestampedText { timestamp, text } => write!(f, "<{timestamp}><c>{text}</c>"),
+            Self::RawTag(tag) => write!(f, "{tag}"),
+        }
+    }
 }
 
 /// A readable TXT document shape.
@@ -271,56 +575,214 @@ pub struct TxtLine {
     pub text: String,
 }
 
+impl fmt::Display for TxtLine {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(timestamp) = self.timestamp {
+            write!(f, "[{timestamp}] {}", self.text)
+        } else {
+            write!(f, "{}", self.text)
+        }
+    }
+}
+
+impl fmt::Display for TxtDocument {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (index, line) in self.lines.iter().enumerate() {
+            if index > 0 {
+                writeln!(f)?;
+            }
+            write!(f, "{line}")?;
+        }
+
+        Ok(())
+    }
+}
+
+fn normalize_document_content(content: &str) -> String {
+    content.replace("\r\n", "\n").replace('\r', "\n")
+}
+
+fn strip_bom(line: &str) -> &str {
+    line.strip_prefix('\u{feff}').unwrap_or(line)
+}
+
+fn is_header_metadata_line(line: &str) -> bool {
+    line.split_once(':').is_some()
+}
+
+fn parse_block(lines: &[&str], index: usize) -> Result<(VttBlock, usize), VttParseError> {
+    let line = lines[index].trim_end();
+    let trimmed = line.trim();
+
+    if let Some(rest) = trimmed.strip_prefix("NOTE") {
+        let mut note_lines = Vec::new();
+        if !rest.trim().is_empty() {
+            note_lines.push(rest.trim_start().to_string());
+        }
+
+        let mut next = index + 1;
+        while next < lines.len() && !lines[next].trim().is_empty() {
+            note_lines.push(lines[next].to_string());
+            next += 1;
+        }
+
+        return Ok((VttBlock::Note(VttNoteBlock { lines: note_lines }), next));
+    }
+
+    if trimmed == "STYLE" {
+        let mut css = Vec::new();
+        let mut next = index + 1;
+        while next < lines.len() && !lines[next].trim().is_empty() {
+            css.push(lines[next].to_string());
+            next += 1;
+        }
+        return Ok((VttBlock::Style(VttStyleBlock { css }), next));
+    }
+
+    if trimmed == "REGION" {
+        let mut region_lines = Vec::new();
+        let mut next = index + 1;
+        while next < lines.len() && !lines[next].trim().is_empty() {
+            region_lines.push(lines[next].to_string());
+            next += 1;
+        }
+        return Ok((VttBlock::Region(VttRegionBlock { lines: region_lines }), next));
+    }
+
+    if trimmed.contains("-->") {
+        return parse_cue_block(lines, index, None);
+    }
+
+    if index + 1 < lines.len() && lines[index + 1].trim().contains("-->") {
+        return parse_cue_block(lines, index, Some(trimmed.to_string()));
+    }
+
+    Err(VttParseError::InvalidCueBlock(format!("unrecognized block header: {line}")))
+}
+
+fn parse_cue_block(
+    lines: &[&str],
+    index: usize,
+    identifier: Option<String>,
+) -> Result<(VttBlock, usize), VttParseError> {
+    let mut next = index;
+    let (identifier, timing_line) = match identifier {
+        Some(identifier) => {
+            next += 1;
+            (Some(identifier), lines[next].trim())
+        }
+        None => (None, lines[next].trim()),
+    };
+
+    let timing = parse_timing_line(timing_line)?;
+    next += 1;
+
+    let mut payload_lines = Vec::new();
+    while next < lines.len() && !lines[next].trim().is_empty() {
+        payload_lines.push(VttCuePayloadLine {
+            fragments: parse_payload_fragments(lines[next]),
+        });
+        next += 1;
+    }
+
+    Ok((
+        VttBlock::Cue(VttCue {
+            identifier,
+            timing,
+            payload: VttCuePayload { lines: payload_lines },
+        }),
+        next,
+    ))
+}
+
+fn parse_timing_line(line: &str) -> Result<VttCueTiming, VttParseError> {
+    let Some((start, rest)) = line.split_once("-->") else {
+        return Err(VttParseError::InvalidCueTiming(format!("missing arrow: {line}")));
+    };
+
+    let mut tail = rest.split_whitespace();
+    let end = tail
+        .next()
+        .ok_or_else(|| VttParseError::InvalidCueTiming(format!("missing end timestamp: {line}")))?
+        .parse::<VttTimestamp>()
+        .map_err(VttParseError::InvalidTimestamp)?;
+
+    let start = start
+        .trim()
+        .parse::<VttTimestamp>()
+        .map_err(VttParseError::InvalidTimestamp)?;
+
+    let mut settings = Vec::new();
+    for token in tail {
+        let token = token.trim();
+        if token.is_empty() {
+            continue;
+        }
+
+        if let Some((key, value)) = token.split_once(':') {
+            settings.push(VttCueSetting {
+                key: key.trim().to_string(),
+                value: value.trim().to_string(),
+            });
+        } else {
+            settings.push(VttCueSetting {
+                key: token.to_string(),
+                value: String::new(),
+            });
+        }
+    }
+
+    Ok(VttCueTiming { start, end, settings })
+}
+
 /// Parse a raw cue payload into semantic fragments.
 #[must_use]
 pub fn parse_payload_fragments(payload: &str) -> Vec<VttCueFragment> {
     let mut fragments = Vec::new();
-    let mut rest = payload;
+    let mut cursor = 0;
 
-    while let Some(start_index) = rest.find('<') {
-        if start_index > 0 {
-            let literal = &rest[..start_index];
-            if !literal.trim().is_empty() {
-                fragments.push(VttCueFragment::Text(literal.to_string()));
-            }
+    while let Some(start_offset) = payload[cursor..].find('<') {
+        let start = cursor + start_offset;
+        if start > cursor {
+            fragments.push(VttCueFragment::Text(payload[cursor..start].to_string()));
         }
 
-        rest = &rest[start_index..];
+        let Some(end_offset) = payload[start + 1..].find('>') else {
+            fragments.push(VttCueFragment::Text(payload[start..].to_string()));
+            return fragments;
+        };
 
-        if let Some(end_index) = rest.find('>') {
-            let tag_content = &rest[1..end_index];
-            if let Ok(timestamp) = VttTimestamp::from_str(tag_content) {
-                rest = &rest[end_index + 1..];
-                if rest.starts_with("<c>") {
-                    if let Some(close_index) = rest.find("</c>") {
-                        let text = &rest[3..close_index];
-                        fragments.push(VttCueFragment::TimestampedText {
-                            timestamp,
-                            text: text.to_string(),
-                        });
-                        rest = &rest[close_index + 4..];
-                    } else {
-                        fragments.push(VttCueFragment::Text(rest.to_string()));
-                        break;
-                    }
-                } else {
+        let end = start + 1 + end_offset;
+        let tag_content = &payload[start + 1..end];
+        if let Ok(timestamp) = VttTimestamp::from_str(tag_content) {
+            let after_tag = end + 1;
+            if payload[after_tag..].starts_with("<c>") {
+                let text_start = after_tag + 3;
+                if let Some(close_offset) = payload[text_start..].find("</c>") {
+                    let text_end = text_start + close_offset;
                     fragments.push(VttCueFragment::TimestampedText {
                         timestamp,
-                        text: String::new(),
+                        text: payload[text_start..text_end].to_string(),
                     });
+                    cursor = text_end + 4;
+                    continue;
                 }
-            } else {
-                fragments.push(VttCueFragment::Text("<".to_string()));
-                rest = &rest[1..];
             }
-        } else {
-            fragments.push(VttCueFragment::Text(rest.to_string()));
-            break;
+
+            fragments.push(VttCueFragment::TimestampedText {
+                timestamp,
+                text: String::new(),
+            });
+            cursor = after_tag;
+            continue;
         }
+
+        fragments.push(VttCueFragment::RawTag(payload[start..=end].to_string()));
+        cursor = end + 1;
     }
 
-    if !rest.trim().is_empty() {
-        fragments.push(VttCueFragment::Text(rest.to_string()));
+    if cursor < payload.len() {
+        fragments.push(VttCueFragment::Text(payload[cursor..].to_string()));
     }
 
     fragments
@@ -333,7 +795,7 @@ pub fn cue_payload_plain_text(payload: &str) -> String {
         .into_iter()
         .map(|fragment| match fragment {
             VttCueFragment::Text(text) | VttCueFragment::TimestampedText { text, .. } => text,
-            VttCueFragment::RawTag(tag) => tag,
+            VttCueFragment::RawTag(_) => String::new(),
         })
         .collect()
 }

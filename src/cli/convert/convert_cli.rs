@@ -8,10 +8,7 @@ use figue::{self as args};
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
-use std::str::FromStr;
-use teamy_facet_vtt::TxtDocument;
-use teamy_facet_vtt::cue_payload_plain_text;
-use vtt::prelude::WebVtt;
+use teamy_facet_vtt::VttDocument;
 
 /// Convert subtitle files into other formats.
 #[derive(Facet, Arbitrary, Debug, PartialEq)]
@@ -69,150 +66,20 @@ fn lowercase_extension(path: &Path) -> Result<String> {
     Ok(extension)
 }
 
-fn read_vtt(path: &Path) -> Result<WebVtt> {
+fn read_vtt(path: &Path) -> Result<VttDocument> {
     let content =
         fs::read_to_string(path).wrap_err_with(|| format!("Failed to read {}", path.display()))?;
-    WebVtt::from_str(&content)
+    VttDocument::parse(&content)
         .wrap_err_with(|| format!("Failed to parse VTT file {}", path.display()))
 }
 
 fn convert_vtt_to_text(path: &Path) -> Result<String> {
-    let content =
-        fs::read_to_string(path).wrap_err_with(|| format!("Failed to read {}", path.display()))?;
-
-    match WebVtt::from_str(&content) {
-        Ok(vtt) => Ok(deduplicated_text(&vtt)),
-        Err(_) => convert_vtt_content_to_text_fallback(&content),
-    }
+    let vtt = read_vtt(path)?;
+    Ok(vtt.deduplicated_text())
 }
 
 fn normalize_vtt(path: &Path) -> Result<String> {
     Ok(read_vtt(path)?.to_string())
-}
-
-fn convert_vtt_content_to_text_fallback(content: &str) -> Result<String> {
-    let normalized = normalize_vtt_content(content);
-    let lines = normalized.lines().collect::<Vec<_>>();
-
-    let Some(first_line) = lines.first() else {
-        bail!("Invalid format");
-    };
-    if !strip_bom(first_line).trim_start().starts_with("WEBVTT") {
-        bail!("Invalid format");
-    }
-
-    let mut cue_texts = Vec::new();
-    let mut index = 1;
-
-    while index < lines.len() {
-        if lines[index].trim().is_empty() {
-            index += 1;
-            continue;
-        }
-
-        if is_vtt_block_header(lines[index]) {
-            index = skip_block(&lines, index + 1);
-            continue;
-        }
-
-        if is_timing_line(lines[index]) {
-            index += 1;
-            let (payload, next_index) = collect_cue_payload(&lines, index);
-            if !payload.is_empty() {
-                cue_texts.push(cue_payload_plain_text(&payload));
-            }
-            index = next_index;
-            continue;
-        }
-
-        if index + 1 < lines.len() && is_timing_line(lines[index + 1]) {
-            index += 2;
-            let (payload, next_index) = collect_cue_payload(&lines, index);
-            if !payload.is_empty() {
-                cue_texts.push(cue_payload_plain_text(&payload));
-            }
-            index = next_index;
-            continue;
-        }
-
-        index += 1;
-    }
-
-    Ok(TxtDocument::from_cue_texts(cue_texts).to_plain_text())
-}
-
-fn normalize_vtt_content(content: &str) -> String {
-    content.replace("\r\n", "\n").replace('\r', "\n")
-}
-
-fn strip_bom(line: &str) -> &str {
-    line.strip_prefix('\u{feff}').unwrap_or(line)
-}
-
-fn is_timing_line(line: &str) -> bool {
-    line.contains("-->")
-}
-
-fn is_vtt_block_header(line: &str) -> bool {
-    let trimmed = line.trim();
-    trimmed == "STYLE" || trimmed == "REGION" || trimmed.starts_with("NOTE")
-}
-
-fn skip_block(lines: &[&str], mut index: usize) -> usize {
-    while index < lines.len() && !lines[index].trim().is_empty() {
-        index += 1;
-    }
-    index
-}
-
-fn collect_cue_payload(lines: &[&str], mut index: usize) -> (String, usize) {
-    let mut payload_lines = Vec::new();
-
-    while index < lines.len() {
-        let current = lines[index];
-        let trimmed = current.trim();
-
-        if is_vtt_block_header(current) || is_timing_line(current) {
-            break;
-        }
-
-        if trimmed.is_empty() {
-            let next_index = skip_blank_lines(lines, index);
-            if next_index >= lines.len()
-                || is_vtt_block_header(lines[next_index])
-                || is_timing_line(lines[next_index])
-                || (next_index + 1 < lines.len() && is_timing_line(lines[next_index + 1]))
-            {
-                index = next_index;
-                break;
-            }
-
-            payload_lines.push(String::new());
-            index += 1;
-            continue;
-        }
-
-        payload_lines.push(current.trim_end().to_string());
-        index += 1;
-    }
-
-    (payload_lines.join("\n"), index)
-}
-
-fn skip_blank_lines(lines: &[&str], mut index: usize) -> usize {
-    while index < lines.len() && lines[index].trim().is_empty() {
-        index += 1;
-    }
-    index
-}
-
-fn deduplicated_text(vtt: &WebVtt) -> String {
-    TxtDocument::from_cue_texts(
-        vtt.cues
-            .iter()
-            .map(|cue| cue_payload_plain_text(&cue.payload)),
-    )
-    .to_plain_text()
 }
 
 #[cfg(test)]
@@ -243,61 +110,42 @@ mod tests {
 
     #[test]
     fn removes_overlapping_lines_between_cues() {
-        let vtt = WebVtt::from_str(
+        let vtt = VttDocument::parse(
             "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nhello\nworld\n\n00:00:01.000 --> 00:00:02.000\nworld\nagain\n",
         )
         .unwrap();
 
-        assert_eq!(deduplicated_text(&vtt), "hello\nworld\nagain");
+        assert_eq!(vtt.deduplicated_text(), "hello\nworld\nagain");
     }
 
     #[test]
     fn removes_character_level_overlap_between_cues() {
-        let vtt = WebVtt::from_str(
+        let vtt = VttDocument::parse(
             "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nhel\n\n00:00:01.000 --> 00:00:02.000\nhello\n",
         )
         .unwrap();
 
-        assert_eq!(deduplicated_text(&vtt), "hello");
+        assert_eq!(vtt.deduplicated_text(), "hello");
     }
 
     #[test]
     fn strips_timed_cue_payload_markup_like_the_fork() {
-        let vtt = WebVtt::from_str(
+        let vtt = VttDocument::parse(
             "WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nwhen<00:00:00.199><c> I</c><00:00:00.280><c> started</c>\n",
         )
         .unwrap();
 
-        assert_eq!(deduplicated_text(&vtt), "when I started");
+        assert_eq!(vtt.deduplicated_text(), "when I started");
     }
 
     #[test]
     fn does_not_insert_separator_when_cues_already_have_spacing() {
-        let vtt = WebVtt::from_str(
+        let vtt = VttDocument::parse(
             "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nHello \n\n00:00:01.000 --> 00:00:02.000\nworld\n",
         )
         .unwrap();
 
-        assert_eq!(deduplicated_text(&vtt), "Hello world");
+        assert_eq!(vtt.deduplicated_text(), "Hello world");
     }
 
-    #[test]
-    fn fallback_handles_note_blocks() {
-        let text = convert_vtt_content_to_text_fallback(
-            "WEBVTT\n\nNOTE language: en\nGenerated by something\n\n00:00:00.000 --> 00:00:01.000\nHello\n\n00:00:01.000 --> 00:00:02.000\nworld\n",
-        )
-        .unwrap();
-
-        assert_eq!(text, "Hello\nworld");
-    }
-
-    #[test]
-    fn fallback_handles_identifier_cues() {
-        let text = convert_vtt_content_to_text_fallback(
-            "WEBVTT\n\nabc123\n00:00:00.000 --> 00:00:01.000\nHello\n",
-        )
-        .unwrap();
-
-        assert_eq!(text, "Hello");
-    }
 }
