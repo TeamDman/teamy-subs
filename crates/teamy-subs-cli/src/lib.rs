@@ -1,11 +1,8 @@
 #![deny(clippy::disallowed_methods)]
 #![deny(clippy::disallowed_macros)]
 
-#[path = "../../../src/cli/mod.rs"]
 pub mod cli;
-#[path = "../../../src/logging_init.rs"]
 pub mod logging_init;
-#[path = "../../../src/paths/mod.rs"]
 pub mod paths;
 
 use crate::cli::Cli;

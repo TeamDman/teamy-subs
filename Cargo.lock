@@ -1039,7 +1039,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
 dependencies = [
  "serde_core",
- "serde_derive",
 ]
 
 [[package]]
@@ -1205,15 +1204,12 @@ dependencies = [
  "facet",
  "figue",
  "open",
- "serde",
- "serde_json",
  "teamy-facet-vtt",
  "teamy-windows",
  "tokio",
  "tracing",
  "tracing-subscriber",
  "tracing-tracy",
- "vtt",
 ]
 
 [[package]]
@@ -1516,15 +1512,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "231fdcd7ef3037e8330d8e17e61011a2c244126acc0a982f4040ac3f9f0bc077"
 dependencies = [
  "memchr",
-]
-
-[[package]]
-name = "vtt"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c8b3570ab6438948707f823ac8b580aa8e339fff088f336de4a8d925fbea2ab"
-dependencies = [
- "serde",
 ]
 
 [[package]]

@@ -11,6 +11,7 @@ DRAFT: Reframe `teamy-subs` as a small workspace with a thin CLI crate, a subtit
 - [x] Step 5 progressed: moved readable cue payload parsing and TXT projection helpers into `teamy-facet-vtt`
 - [x] Step 5 progressed again: `teamy-facet-vtt` now parses and renders native WebVTT documents for `.vtt -> .txt` and `.vtt -> .vtt`
 - [x] Step 9 progressed: `teamy-subs-cli` no longer depends on `serde` / `serde_json` for ffprobe subtitle extraction
+- [x] Step 1 progressed again: `teamy-subs-cli` now owns local `logging_init` and `paths` modules instead of bridging them from the root source tree
 - [x] Validation: `cargo test --workspace` passes after the initial workspace split
 - [ ] Source files are temporarily shared into `teamy-subs-cli` via `#[path = ...]` bridging; physical relocation is still pending
 
