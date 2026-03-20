@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 /// Extract subtitle streams from a local media container.
+// r[impl cli.command.extract]
 #[derive(Facet, Arbitrary, Debug, PartialEq)]
 pub struct ExtractArgs {
     /// Media file to inspect.

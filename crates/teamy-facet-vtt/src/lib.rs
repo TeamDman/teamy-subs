@@ -143,6 +143,8 @@ impl fmt::Display for VttParseError {
 impl std::error::Error for VttParseError {}
 
 /// A full WebVTT document shape.
+// r[impl vtt.document.header]
+// r[impl vtt.document.blocks]
 #[derive(Facet, Debug, Clone, PartialEq, Eq, Default)]
 pub struct VttDocument {
     pub header: VttHeader,
@@ -214,6 +216,8 @@ impl VttDocument {
 
     /// Return the human-readable text projection for this document.
     #[must_use]
+    // r[impl txt.readability.first]
+    // r[impl txt.document.lines]
     pub fn deduplicated_text(&self) -> String {
         TxtDocument::from_cue_texts(self.blocks.iter().filter_map(|block| match block {
             VttBlock::Cue(cue) => Some(cue.payload_plain_text()),
@@ -254,6 +258,7 @@ impl fmt::Display for VttDocument {
 }
 
 /// Header data for a WebVTT document.
+// r[impl vtt.document.header]
 #[derive(Facet, Debug, Clone, PartialEq, Eq, Default)]
 pub struct VttHeader {
     pub description: Option<String>,
@@ -291,6 +296,7 @@ impl fmt::Display for VttMetadataEntry {
 }
 
 /// A top-level block in a WebVTT file.
+// r[impl vtt.document.blocks]
 #[derive(Facet, Debug, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum VttBlock {
@@ -360,6 +366,9 @@ impl fmt::Display for VttRegionBlock {
 }
 
 /// A cue in a WebVTT document.
+// r[impl vtt.cue.identifier]
+// r[impl vtt.cue.timing]
+// r[impl vtt.payload.fragments]
 #[derive(Facet, Debug, Clone, PartialEq, Eq)]
 pub struct VttCue {
     pub identifier: Option<String>,
@@ -392,6 +401,7 @@ impl fmt::Display for VttCue {
 }
 
 /// Timing and settings for a cue.
+// r[impl vtt.cue.timing]
 #[derive(Facet, Debug, Clone, PartialEq, Eq)]
 pub struct VttCueTiming {
     pub start: VttTimestamp,
@@ -428,6 +438,7 @@ impl fmt::Display for VttCueSetting {
     }
 }
 
+// r[impl vtt.payload.fragments]
 /// A cue payload broken into lines and fragments.
 #[derive(Facet, Debug, Clone, PartialEq, Eq, Default)]
 pub struct VttCuePayload {
@@ -518,6 +529,8 @@ impl fmt::Display for VttCueFragment {
 }
 
 /// A readable TXT document shape.
+// r[impl txt.document.lines]
+// r[impl txt.line.timestamp-prefix]
 #[derive(Facet, Debug, Clone, PartialEq, Eq, Default)]
 pub struct TxtDocument {
     pub lines: Vec<TxtLine>,
@@ -526,6 +539,7 @@ pub struct TxtDocument {
 impl TxtDocument {
     /// Build a readable TXT document from cue text chunks, applying overlap removal.
     #[must_use]
+    // r[impl txt.readability.first]
     pub fn from_cue_texts<I, S>(cue_texts: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -569,6 +583,8 @@ impl TxtDocument {
 }
 
 /// A single TXT line with optional coarse timestamp metadata.
+// r[impl txt.document.lines]
+// r[impl txt.line.timestamp-prefix]
 #[derive(Facet, Debug, Clone, PartialEq, Eq)]
 pub struct TxtLine {
     pub timestamp: Option<VttTimestamp>,
@@ -783,6 +799,7 @@ fn parse_timing_line(line: &str) -> Result<VttCueTiming, VttParseError> {
 
 /// Parse a raw cue payload into semantic fragments.
 #[must_use]
+// r[impl vtt.payload.fragments]
 pub fn parse_payload_fragments(payload: &str) -> Vec<VttCueFragment> {
     let mut fragments = Vec::new();
     let mut cursor = 0;
@@ -878,6 +895,7 @@ mod tests {
     use super::*;
 
     #[test]
+    // r[verify vtt.cue.timing]
     fn parses_full_webvtt_timestamp() {
         let timestamp = VttTimestamp::from_str("01:23:45.678").unwrap();
         assert_eq!(timestamp.total_millis(), 5_025_678);
@@ -885,6 +903,7 @@ mod tests {
     }
 
     #[test]
+    // r[verify vtt.cue.timing]
     fn parses_short_webvtt_timestamp() {
         let timestamp = VttTimestamp::from_str("23:45.67").unwrap();
         assert_eq!(timestamp.total_millis(), 1_425_670);
@@ -892,6 +911,13 @@ mod tests {
     }
 
     #[test]
+    // r[verify vtt.document.header]
+    // r[verify vtt.document.blocks]
+    // r[verify vtt.cue.identifier]
+    // r[verify vtt.cue.timing]
+    // r[verify vtt.payload.fragments]
+    // r[verify txt.document.lines]
+    // r[verify txt.line.timestamp-prefix]
     fn shapes_can_model_vtt_and_txt_documents() {
         let document = VttDocument {
             header: VttHeader {
@@ -931,6 +957,7 @@ mod tests {
     }
 
     #[test]
+    // r[verify vtt.payload.fragments]
     fn payload_plain_text_strips_timed_markup() {
         assert_eq!(
             cue_payload_plain_text("when<00:00:00.199><c> I</c><00:00:00.280><c> started</c>"),
@@ -939,12 +966,19 @@ mod tests {
     }
 
     #[test]
+    // r[verify txt.readability.first]
+    // r[verify txt.document.lines]
     fn txt_document_from_cues_deduplicates_overlap() {
         let txt = TxtDocument::from_cue_texts(["hello", "hello world", "world again"]);
         assert_eq!(txt.to_plain_text(), "hello world again");
     }
 
     #[test]
+    // r[verify vtt.document.header]
+    // r[verify vtt.document.blocks]
+    // r[verify vtt.cue.identifier]
+    // r[verify vtt.cue.timing]
+    // r[verify vtt.payload.fragments]
     fn parses_ytdlp_caption_sample_with_blank_line_between_timing_and_payload() {
         let document = VttDocument::parse(
             "WEBVTT\nKind: captions\nLanguage: en\n\n00:00:07.200 --> 00:00:09.190 align:start position:0%\n\nhello<00:00:07.919><c> everyone</c>\n\n00:00:09.190 --> 00:00:09.200 align:start position:0%\nhello everyone\n",

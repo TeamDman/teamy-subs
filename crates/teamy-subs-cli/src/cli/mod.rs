@@ -62,10 +62,13 @@ impl Cli {
 pub enum Command {
     /// Cache-related commands.
     Cache(CacheArgs),
+    // r[impl cli.command.convert]
     /// Convert subtitle files into other formats.
     Convert(ConvertArgs),
+    // r[impl cli.command.download]
     /// Download subtitles for remote media with `yt-dlp`.
     Download(DownloadArgs),
+    // r[impl cli.command.extract]
     /// Extract subtitle streams from local media with `ffmpeg`.
     Extract(ExtractArgs),
     /// Home-related commands.

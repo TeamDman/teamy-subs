@@ -8,6 +8,7 @@ use figue::{self as args};
 #[derive(Facet, Arbitrary, Debug, Default, PartialEq)]
 #[facet(rename_all = "kebab-case")]
 pub struct GlobalArgs {
+    // r[impl cli.global.debug]
     /// Enable debug logging, including backtraces on panics.
     #[facet(args::named, default)]
     pub debug: bool,
@@ -22,6 +23,7 @@ pub struct GlobalArgs {
     /// If a directory path is provided, a filename like `log_<timestamp>.ndjson`
     /// is generated in that directory.
     /// If omitted, no JSON log file is written.
+    // r[impl cli.global.log-file]
     #[facet(args::named)]
     pub log_file: Option<String>,
 }

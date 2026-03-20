@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 /// Download subtitles for remote media with `yt-dlp`.
+// r[impl cli.command.download]
 #[derive(Facet, Arbitrary, Debug, PartialEq)]
 #[facet(rename_all = "kebab-case")]
 pub struct DownloadArgs {

@@ -23,6 +23,7 @@ Here's the CLI structure I have in mind:
 teamy-subs download https://www.youtube.com/watch?v=j2itsZz5PiM # `--output-dir {path}` can be specified; just a yt-dlp wrapper via Command
 teamy-subs extract abc.mkv . # just a ffmpeg wrapper via Command
 teamy-subs convert ahoy.vtt ahoy.txt # use TeamDman/vtt fork
+teamy-subs convert ahoy.vtt txt      # infers ahoy.txt
 ```
 
 ## Implemented commands
@@ -37,3 +38,6 @@ Current conversion support:
 
 - `.vtt -> .txt`
 - `.vtt -> .vtt` normalization
+
+For `convert`, the output argument can also be a bare known format such as `txt` or `vtt`.
+In that case, the command reuses the input file name and swaps only the extension.

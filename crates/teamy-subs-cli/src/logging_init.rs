@@ -14,6 +14,8 @@ use tracing_subscriber::prelude::*;
 use tracing_subscriber::util::SubscriberInitExt;
 
 /// Initialize logging based on the provided configuration.
+// r[impl cli.global.debug]
+// r[impl cli.global.log-file]
 ///
 /// # Errors
 ///
