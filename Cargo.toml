@@ -16,21 +16,24 @@ categories = ["command-line-utilities"]
 documentation = "https://github.com/TeamDman/teamy-subs" # "https://docs.rs/crate/abc"
 
 [dependencies]
+chrono = "0.4"
 eyre = "0.6.12"
 teamy-subs-cli = { path = "crates/teamy-subs-cli" }
 
 [dev-dependencies]
-figue = { git = "https://github.com/TeamDman/figue", rev = "0e82172c21e9ce0ecc4521ff01f6dbf56342867f", features = ["arbitrary"] }
+figue = { git = "https://github.com/TeamDman/facet.git", rev = "23ad4dcd0", package = "figue", features = ["arbitrary"] }
 
 [features]
 default = []
-tracy = ["teamy-subs-cli/tracy"]
+extended_observability = []
+tracy = ["extended_observability", "teamy-subs-cli/tracy"]
 
 [build-dependencies]
 embed-resource = "3.0.6"
 
 [lints.rust]
 ambiguous_negative_literals = "warn"
+unfulfilled_lint_expectations = "deny"
 missing_debug_implementations = "warn"
 redundant_imports = "warn"
 redundant_lifetimes = "warn"
@@ -51,6 +54,7 @@ multiple_crate_versions = "allow" # turn this off periodically to see how bad it
 multiple_unsafe_ops_per_block = "deny"
 module_inception = "allow"
 allow_attributes = "deny"
+allow_attributes_without_reason = "warn"
 # allow_attributes_without_reason = "warn"
 as_pointer_underscore = "warn"
 assertions_on_result_states = "warn"

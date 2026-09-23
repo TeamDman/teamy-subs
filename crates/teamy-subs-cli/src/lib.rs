@@ -4,8 +4,11 @@
 pub mod cli;
 pub mod logging_init;
 pub mod paths;
+#[cfg(windows)]
+mod windows_startup;
 
 use crate::cli::Cli;
+use teamy_cancellation::CtrlCHandler;
 
 /// Run the teamy-subs CLI using externally supplied version metadata.
 ///
@@ -17,8 +20,14 @@ use crate::cli::Cli;
 /// # Panics
 ///
 /// Panics if the CLI schema is invalid (should never happen with correct code).
-pub fn run(version: &str, implementation_git_repo: &str, git_revision: &str) -> eyre::Result<()> {
+pub fn run(version: String, implementation_git_repo: &str, git_revision: &str) -> eyre::Result<()> {
     color_eyre::install()?;
+    let cancellation_token = CtrlCHandler::default().install()?;
+
+    #[cfg(windows)]
+    {
+        let _ = windows_startup::enable_ansi_support();
+    }
 
     let cli: Cli = figue::Driver::new(
         figue::builder::<Cli>()
@@ -27,21 +36,29 @@ pub fn run(version: &str, implementation_git_repo: &str, git_revision: &str) -> 
             .help(move |help| {
                 help.version(version)
                     .include_implementation_source_file(true)
-                    .include_implementation_git_url(implementation_git_repo, git_revision)
+                    .include_implementation_github_url(implementation_git_repo, git_revision)
             })
             .build(),
     )
     .run()
     .unwrap();
 
-    logging_init::init_logging(&cli.global_args)?;
+    let _stop_after_duration_thread = cli
+        .global_args
+        .stop_after
+        .start_stop_after_duration_thread(cancellation_token.clone())?;
+
+    logging_init::init_logging(&cli.global_args, cancellation_token.clone())?;
 
     #[cfg(windows)]
     {
-        let _ = teamy_windows::console::enable_ansi_support();
-        teamy_windows::string::warn_if_utf8_not_enabled();
+        windows_startup::warn_if_utf8_not_enabled();
     };
 
-    cli.invoke()?;
+    let output_format = cli.global_args.output_format;
+    let output = cli.invoke(cancellation_token.clone())?;
+    cancellation_token.bail_if_cancelled()?;
+    output.emit(output_format)?;
+    cancellation_token.bail_if_cancelled()?;
     Ok(())
 }

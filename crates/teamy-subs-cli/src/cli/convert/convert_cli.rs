@@ -1,3 +1,4 @@
+use crate::cli::output::CliOutput;
 use arbitrary::Arbitrary;
 use eyre::Context;
 use eyre::Result;
@@ -8,6 +9,7 @@ use figue::{self as args};
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
+use teamy_cancellation::CancellationToken;
 use teamy_facet_vtt::VttDocument;
 
 /// Convert subtitle files into other formats.
@@ -23,13 +25,19 @@ pub struct ConvertArgs {
     pub output_file: String,
 }
 
+#[derive(Facet, Debug)]
+struct ConvertReport {
+    path: String,
+}
+
 impl ConvertArgs {
     /// # Errors
     ///
     /// This function will return an error if the input cannot be read, the subtitle
     /// file cannot be parsed, or the target format is unsupported.
     #[expect(clippy::unused_async)]
-    pub async fn invoke(self) -> Result<()> {
+    pub async fn invoke(self, cancellation: &CancellationToken) -> Result<CliOutput> {
+        cancellation.bail_if_cancelled()?;
         let input_file = PathBuf::from(&self.input_file);
         let output_file = resolve_output_path(&input_file, &self.output_file)?;
         let input_extension = lowercase_extension(&input_file)?;
@@ -51,10 +59,12 @@ impl ConvertArgs {
             })?;
         }
 
+        cancellation.bail_if_cancelled()?;
         fs::write(&output_file, converted)
             .wrap_err_with(|| format!("Failed to write output file {}", output_file.display()))?;
-        println!("Wrote {}", output_file.display());
-        Ok(())
+        Ok(CliOutput::facet(ConvertReport {
+            path: output_file.display().to_string(),
+        }))
     }
 }
 

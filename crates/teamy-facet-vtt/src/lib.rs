@@ -687,7 +687,12 @@ fn parse_block(lines: &[&str], index: usize) -> Result<(VttBlock, usize), VttPar
             region_lines.push(lines[next].to_string());
             next += 1;
         }
-        return Ok((VttBlock::Region(VttRegionBlock { lines: region_lines }), next));
+        return Ok((
+            VttBlock::Region(VttRegionBlock {
+                lines: region_lines,
+            }),
+            next,
+        ));
     }
 
     if trimmed.contains("-->") {
@@ -698,7 +703,9 @@ fn parse_block(lines: &[&str], index: usize) -> Result<(VttBlock, usize), VttPar
         return parse_cue_block(lines, index, Some(trimmed.to_string()));
     }
 
-    Err(VttParseError::InvalidCueBlock(format!("unrecognized block header: {line}")))
+    Err(VttParseError::InvalidCueBlock(format!(
+        "unrecognized block header: {line}"
+    )))
 }
 
 fn parse_cue_block(
@@ -751,7 +758,9 @@ fn parse_cue_block(
         VttBlock::Cue(VttCue {
             identifier,
             timing,
-            payload: VttCuePayload { lines: payload_lines },
+            payload: VttCuePayload {
+                lines: payload_lines,
+            },
         }),
         next,
     ))
@@ -759,7 +768,9 @@ fn parse_cue_block(
 
 fn parse_timing_line(line: &str) -> Result<VttCueTiming, VttParseError> {
     let Some((start, rest)) = line.split_once("-->") else {
-        return Err(VttParseError::InvalidCueTiming(format!("missing arrow: {line}")));
+        return Err(VttParseError::InvalidCueTiming(format!(
+            "missing arrow: {line}"
+        )));
     };
 
     let mut tail = rest.split_whitespace();
@@ -794,7 +805,11 @@ fn parse_timing_line(line: &str) -> Result<VttCueTiming, VttParseError> {
         }
     }
 
-    Ok(VttCueTiming { start, end, settings })
+    Ok(VttCueTiming {
+        start,
+        end,
+        settings,
+    })
 }
 
 /// Parse a raw cue payload into semantic fragments.

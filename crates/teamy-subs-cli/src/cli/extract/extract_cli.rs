@@ -1,3 +1,4 @@
+use crate::cli::output::CliOutput;
 use arbitrary::Arbitrary;
 use eyre::Context;
 use eyre::Result;
@@ -6,7 +7,11 @@ use facet::Facet;
 use figue::{self as args};
 use std::path::Path;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::Output;
+use teamy_cancellation::CancellationToken;
+use tokio::process::Command;
+use tokio::time::Duration;
+use tokio::time::sleep;
 
 /// Extract subtitle streams from a local media container.
 // r[impl cli.command.extract]
@@ -21,13 +26,18 @@ pub struct ExtractArgs {
     pub output_dir: String,
 }
 
+#[derive(Facet, Debug)]
+struct ExtractReport {
+    paths: Vec<String>,
+}
+
 impl ExtractArgs {
     /// # Errors
     ///
     /// This function will return an error if the input cannot be probed, no subtitle
     /// streams are found, or one or more extraction commands fail.
-    #[expect(clippy::unused_async)]
-    pub async fn invoke(self) -> Result<()> {
+    pub async fn invoke(self, cancellation: &CancellationToken) -> Result<CliOutput> {
+        cancellation.bail_if_cancelled()?;
         let input_file = PathBuf::from(&self.input_file);
         let output_dir = PathBuf::from(&self.output_dir);
 
@@ -39,7 +49,7 @@ impl ExtractArgs {
             format!("Failed to create output directory {}", output_dir.display())
         })?;
 
-        let streams = probe_subtitle_streams(&input_file)?;
+        let streams = probe_subtitle_streams(&input_file, cancellation).await?;
         if streams.is_empty() {
             bail!("No subtitle streams were found in {}", input_file.display());
         }
@@ -50,7 +60,9 @@ impl ExtractArgs {
             .unwrap_or("subtitle");
 
         let mut failures = Vec::new();
+        let mut paths = Vec::new();
         for (position, stream) in streams.iter().enumerate() {
+            cancellation.bail_if_cancelled()?;
             let strategy = stream_output_strategy(stream.codec_name.as_deref());
             let output_path = build_output_path(
                 &output_dir,
@@ -77,12 +89,13 @@ impl ExtractArgs {
                 }
             }
 
-            let output = command.arg(&output_path).output().wrap_err(
-                "Failed to launch ffmpeg. Ensure it is installed and available on PATH.",
-            )?;
+            command.arg(&output_path);
+            let output = run_process(command, cancellation)
+                .await
+                .wrap_err("Failed to run ffmpeg. Ensure it is installed and available on PATH.")?;
 
             if output.status.success() {
-                println!("Extracted {}", output_path.display());
+                paths.push(output_path.display().to_string());
             } else {
                 failures.push(format!(
                     "stream {}: {}",
@@ -93,7 +106,7 @@ impl ExtractArgs {
         }
 
         if failures.is_empty() {
-            Ok(())
+            Ok(CliOutput::facet(ExtractReport { paths }))
         } else {
             bail!(
                 "Failed to extract one or more subtitle streams:\n{}",
@@ -133,8 +146,12 @@ struct SubtitleOutputStrategy {
     mode: SubtitleExtractionMode,
 }
 
-fn probe_subtitle_streams(input_file: &Path) -> Result<Vec<FfprobeStream>> {
-    let output = Command::new("ffprobe")
+async fn probe_subtitle_streams(
+    input_file: &Path,
+    cancellation: &CancellationToken,
+) -> Result<Vec<FfprobeStream>> {
+    let mut command = Command::new("ffprobe");
+    command
         .arg("-v")
         .arg("error")
         .arg("-select_streams")
@@ -143,11 +160,10 @@ fn probe_subtitle_streams(input_file: &Path) -> Result<Vec<FfprobeStream>> {
         .arg("stream=index,codec_name:stream_tags=language,title")
         .arg("-of")
         .arg("default=noprint_wrappers=1:nokey=0")
-        .arg(input_file)
-        .output()
-        .wrap_err(
-            "Failed to launch ffprobe. Ensure ffmpeg/ffprobe are installed and available on PATH.",
-        )?;
+        .arg(input_file);
+    let output = run_process(command, cancellation).await.wrap_err(
+        "Failed to run ffprobe. Ensure ffmpeg/ffprobe are installed and available on PATH.",
+    )?;
 
     if !output.status.success() {
         bail!(
@@ -157,6 +173,19 @@ fn probe_subtitle_streams(input_file: &Path) -> Result<Vec<FfprobeStream>> {
     }
 
     parse_ffprobe_streams(&String::from_utf8_lossy(&output.stdout))
+}
+
+async fn run_process(mut command: Command, cancellation: &CancellationToken) -> Result<Output> {
+    cancellation.bail_if_cancelled()?;
+    command.kill_on_drop(true);
+    let output = command.output();
+    tokio::pin!(output);
+    loop {
+        tokio::select! {
+            result = &mut output => return result.map_err(Into::into),
+            () = sleep(Duration::from_millis(100)) => cancellation.bail_if_cancelled()?,
+        }
+    }
 }
 
 fn parse_ffprobe_streams(output: &str) -> Result<Vec<FfprobeStream>> {
@@ -371,10 +400,28 @@ mod tests {
         assert_eq!(streams.len(), 2);
         assert_eq!(streams[0].index, 2);
         assert_eq!(streams[0].codec_name.as_deref(), Some("webvtt"));
-        assert_eq!(streams[0].tags.as_ref().and_then(|tags| tags.language.as_deref()), Some("eng"));
-        assert_eq!(streams[0].tags.as_ref().and_then(|tags| tags.title.as_deref()), Some("English SDH"));
+        assert_eq!(
+            streams[0]
+                .tags
+                .as_ref()
+                .and_then(|tags| tags.language.as_deref()),
+            Some("eng")
+        );
+        assert_eq!(
+            streams[0]
+                .tags
+                .as_ref()
+                .and_then(|tags| tags.title.as_deref()),
+            Some("English SDH")
+        );
         assert_eq!(streams[1].index, 4);
         assert_eq!(streams[1].codec_name.as_deref(), Some("subrip"));
-        assert_eq!(streams[1].tags.as_ref().and_then(|tags| tags.language.as_deref()), Some("jpn"));
+        assert_eq!(
+            streams[1]
+                .tags
+                .as_ref()
+                .and_then(|tags| tags.language.as_deref()),
+            Some("jpn")
+        );
     }
 }

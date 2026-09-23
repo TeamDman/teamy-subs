@@ -1,8 +1,10 @@
 //! Global arguments that apply to all commands.
 
+use crate::cli::output::OutputFormat;
 use arbitrary::Arbitrary;
 use facet::Facet;
 use figue::{self as args};
+use teamy_cancellation::StopAfterArgs;
 
 /// Global arguments that apply to all commands.
 #[derive(Facet, Arbitrary, Debug, Default, PartialEq)]
@@ -26,4 +28,14 @@ pub struct GlobalArgs {
     // r[impl cli.global.log-file]
     #[facet(args::named)]
     pub log_file: Option<String>,
+
+    /// Request graceful cancellation after a span, log message, or duration.
+    #[facet(flatten, default)]
+    #[arbitrary(default)]
+    pub stop_after: StopAfterArgs,
+
+    /// Render command output as `text`, `json`, or `csv`.
+    #[facet(args::named)]
+    #[arbitrary(default)]
+    pub output_format: Option<OutputFormat>,
 }
