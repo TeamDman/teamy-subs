@@ -39,6 +39,15 @@ impl ConvertArgs {
     pub async fn invoke(self, cancellation: &CancellationToken) -> Result<CliOutput> {
         cancellation.bail_if_cancelled()?;
         let input_file = PathBuf::from(&self.input_file);
+        // Parsing/writing expectation: one second plus one second per MiB of input.
+        let budget = crate::elapsed_duration::budget(
+            1000,
+            usize::try_from(
+                std::fs::metadata(&input_file).map_or(0, |metadata| metadata.len() / (1024 * 1024)),
+            )
+            .unwrap_or(usize::MAX),
+            1000,
+        );
         let output_file = resolve_output_path(&input_file, &self.output_file)?;
         let input_extension = lowercase_extension(&input_file)?;
         let output_extension = lowercase_extension(&output_file)?;
@@ -62,9 +71,12 @@ impl ConvertArgs {
         cancellation.bail_if_cancelled()?;
         fs::write(&output_file, converted)
             .wrap_err_with(|| format!("Failed to write output file {}", output_file.display()))?;
-        Ok(CliOutput::facet(ConvertReport {
-            path: output_file.display().to_string(),
-        }))
+        Ok(CliOutput::facet(
+            ConvertReport {
+                path: output_file.display().to_string(),
+            },
+            Some(budget),
+        ))
     }
 }
 
@@ -248,5 +260,44 @@ mod tests {
         assert_eq!(output, "hello everyone");
 
         let _ = fs::remove_file(input_path);
+    }
+}
+
+#[cfg(test)]
+mod completion_budget_tests {
+    use super::*;
+    #[tokio::test]
+    async fn synthetic_conversion_returns_expected_budget() {
+        let directory = std::env::temp_dir().join(format!(
+            "teamy-subs-budget-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&directory).unwrap();
+        let input = directory.join("fixture.vtt");
+        let output = directory.join("fixture.txt");
+        fs::write(
+            &input,
+            "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nSynthetic caption\n",
+        )
+        .unwrap();
+        let receipt = ConvertArgs {
+            input_file: input.display().to_string(),
+            output_file: output.display().to_string(),
+        }
+        .invoke(&CancellationToken::new())
+        .await
+        .unwrap();
+        assert_eq!(
+            receipt.elapsed_duration_warn_threshold,
+            Some(std::time::Duration::from_secs(1))
+        );
+        assert_eq!(fs::read_to_string(&output).unwrap(), "Synthetic caption");
+        fs::remove_file(input).unwrap();
+        fs::remove_file(output).unwrap();
+        fs::remove_dir(directory).unwrap();
     }
 }

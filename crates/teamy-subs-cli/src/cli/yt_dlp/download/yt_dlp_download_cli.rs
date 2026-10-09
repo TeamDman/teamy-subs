@@ -91,8 +91,11 @@ impl YtDlpDownloadArgs {
             eyre::bail!("yt-dlp exited unsuccessfully with status {status}");
         }
 
-        Ok(CliOutput::facet(YtDlpDownloadReport {
-            output_dir: output_dir.display().to_string(),
-        }))
+        Ok(CliOutput::facet(
+            YtDlpDownloadReport {
+                output_dir: output_dir.display().to_string(),
+            },
+            None, /* URL may expand to an unbounded playlist with all subtitle languages. */
+        ))
     }
 }

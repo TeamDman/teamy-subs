@@ -54,6 +54,17 @@ impl ExtractArgs {
             bail!("No subtitle streams were found in {}", input_file.display());
         }
 
+        // Each ffmpeg stream scans the container; allow five seconds plus one second per 10 MiB per stream.
+        let chunks = usize::try_from(
+            std::fs::metadata(&input_file)
+                .map_or(0, |metadata| metadata.len() / (10 * 1024 * 1024)),
+        )
+        .unwrap_or(usize::MAX);
+        let budget = crate::elapsed_duration::budget(
+            5000,
+            streams.len().saturating_mul(chunks.saturating_add(1)),
+            1000,
+        );
         let base_name = input_file
             .file_stem()
             .and_then(std::ffi::OsStr::to_str)
@@ -106,7 +117,7 @@ impl ExtractArgs {
         }
 
         if failures.is_empty() {
-            Ok(CliOutput::facet(ExtractReport { paths }))
+            Ok(CliOutput::facet(ExtractReport { paths }, Some(budget)))
         } else {
             bail!(
                 "Failed to extract one or more subtitle streams:\n{}",

@@ -49,7 +49,10 @@ impl SubdlSubtitleSearchArgs {
         if !response.status {
             bail!("SubDL did not return a successful filename match");
         }
-        Ok(CliOutput::facet(summarize(response)))
+        Ok(CliOutput::facet(
+            summarize(response),
+            client.completion_budget(1),
+        ))
     }
 }
 

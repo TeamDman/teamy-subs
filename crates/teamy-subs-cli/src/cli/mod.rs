@@ -81,9 +81,23 @@ pub enum Command {
 }
 
 impl Command {
+    /// Safe static dispatch label; excludes paths, queries and credentials.
+    #[must_use]
+    pub const fn name(&self) -> &'static str {
+        match self {
+            Self::Cache(_) => "cache",
+            Self::Convert(_) => "convert",
+            Self::Extract(_) => "extract",
+            Self::Home(_) => "home",
+            Self::Subdl(_) => "subdl",
+            Self::YtDlp(_) => "ytdlp",
+        }
+    }
+
     /// # Errors
     ///
     /// This function will return an error if the subcommand fails.
+    #[tracing::instrument(name = "command", skip_all, fields(command = self.name()))]
     pub async fn invoke(self, cancellation_token: CancellationToken) -> eyre::Result<CliOutput> {
         cancellation_token.bail_if_cancelled()?;
         match self {

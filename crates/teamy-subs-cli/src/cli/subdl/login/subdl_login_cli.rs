@@ -48,9 +48,12 @@ impl SubdlLoginArgs {
         let expires_at = DateTime::<Utc>::from_timestamp(expires_at, 0)
             .ok_or_else(|| eyre!("Invalid SubDL lease expiry"))?
             .to_rfc3339();
-        Ok(CliOutput::facet(LoginReport {
-            expires_at,
-            ttl_minutes,
-        }))
+        Ok(CliOutput::facet(
+            LoginReport {
+                expires_at,
+                ttl_minutes,
+            },
+            None, /* 1Password approval waits for user interaction without a deadline. */
+        ))
     }
 }

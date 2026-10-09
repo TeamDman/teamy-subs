@@ -19,9 +19,12 @@ impl SubdlStatusArgs {
     /// Returns an error if local lease metadata cannot be read.
     pub fn invoke(self) -> Result<CliOutput> {
         let (active_leases, maximum_remaining_seconds) = auth::status()?;
-        Ok(CliOutput::facet(StatusReport {
-            active_leases,
-            maximum_remaining_seconds,
-        }))
+        Ok(CliOutput::facet(
+            StatusReport {
+                active_leases,
+                maximum_remaining_seconds,
+            },
+            Some(std::time::Duration::from_secs(1)),
+        ))
     }
 }

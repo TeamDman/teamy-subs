@@ -28,14 +28,17 @@ impl SubdlAccountShowArgs {
         cancellation: &CancellationToken,
     ) -> Result<CliOutput> {
         let account = client.account(cancellation).await?;
-        Ok(CliOutput::facet(AccountReport {
-            plan: account.plan.name,
-            searches_used: account.usage.search.used,
-            searches_limit: account.usage.search.limit,
-            searches_remaining: account.usage.search.remaining,
-            downloads_used: account.usage.downloads.used,
-            downloads_limit: account.usage.downloads.limit,
-            downloads_remaining: account.usage.downloads.remaining,
-        }))
+        Ok(CliOutput::facet(
+            AccountReport {
+                plan: account.plan.name,
+                searches_used: account.usage.search.used,
+                searches_limit: account.usage.search.limit,
+                searches_remaining: account.usage.search.remaining,
+                downloads_used: account.usage.downloads.used,
+                downloads_limit: account.usage.downloads.limit,
+                downloads_remaining: account.usage.downloads.remaining,
+            },
+            client.completion_budget(1),
+        ))
     }
 }

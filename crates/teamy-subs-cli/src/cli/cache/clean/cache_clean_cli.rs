@@ -20,8 +20,15 @@ impl CacheCleanArgs {
     #[expect(clippy::unused_async)]
     pub async fn invoke(self) -> Result<CliOutput> {
         let result = crate::paths::clean_cache().wrap_err("Failed to clean cache directory")?;
-        Ok(CliOutput::facet(CacheCleanReport {
-            entries_removed: result.entries_removed,
-        }))
+        Ok(CliOutput::facet(
+            CacheCleanReport {
+                entries_removed: result.entries_removed,
+            },
+            Some(crate::elapsed_duration::budget(
+                1000,
+                result.entries_removed,
+                250,
+            )),
+        ))
     }
 }

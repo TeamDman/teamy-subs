@@ -18,6 +18,6 @@ impl SubdlCleanupArgs {
     /// Returns an error if the lease identity is invalid or cleanup fails.
     pub fn invoke(self) -> Result<CliOutput> {
         auth::cleanup(&self.lease)?;
-        Ok(CliOutput::none())
+        Ok(CliOutput::none(Some(std::time::Duration::from_secs(1))))
     }
 }

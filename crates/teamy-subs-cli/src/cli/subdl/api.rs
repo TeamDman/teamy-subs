@@ -17,6 +17,7 @@ const MAX_JSON_BYTES: usize = 2 * 1024 * 1024;
 const MAX_ARCHIVE_BYTES: usize = 20 * 1024 * 1024;
 
 pub struct SubdlClient {
+    interactive_auth: bool,
     http: Client,
     api_base: Url,
     download_base: Url,
@@ -105,6 +106,11 @@ pub struct Quota {
 }
 
 impl SubdlClient {
+    /// Thirty seconds per bounded HTTP request plus five seconds for local decode/write.
+    /// Explicit op references may wait indefinitely for 1Password user approval.
+    pub(super) fn completion_budget(&self, requests: usize) -> Option<Duration> {
+        (!self.interactive_auth).then(|| crate::elapsed_duration::budget(5000, requests, 30_000))
+    }
     /// # Errors
     /// Returns an error if the key cannot be acquired or the HTTP client cannot be built.
     pub async fn new(op_ref: Option<&str>, cancellation: &CancellationToken) -> Result<Self> {
@@ -115,6 +121,7 @@ impl SubdlClient {
             .build()
             .map_err(|_| eyre!("Failed to create SubDL HTTP client"))?;
         Ok(Self {
+            interactive_auth: op_ref.is_some(),
             http,
             api_base: Url::parse("https://api.subdl.com/")?,
             download_base: Url::parse("https://dl.subdl.com/")?,
@@ -314,6 +321,7 @@ mod tests {
             String::from_utf8(request).unwrap()
         });
         let client = SubdlClient {
+            interactive_auth: false,
             http: Client::builder()
                 .redirect(reqwest::redirect::Policy::none())
                 .build()
@@ -338,5 +346,24 @@ mod tests {
                 .contains("x-api-key: dummy-secret")
         );
         assert!(!request.contains("api_key="));
+    }
+}
+
+#[cfg(test)]
+mod completion_budget_tests {
+    use super::*;
+    #[test]
+    fn approval_exemption_and_request_scaling_are_explicit() {
+        let mut client = SubdlClient {
+            interactive_auth: false,
+            http: Client::new(),
+            api_base: Url::parse("http://127.0.0.1/").unwrap(),
+            download_base: Url::parse("http://127.0.0.1/").unwrap(),
+            key: "synthetic".to_owned(),
+        };
+        assert_eq!(client.completion_budget(1), Some(Duration::from_secs(35)));
+        assert_eq!(client.completion_budget(2), Some(Duration::from_secs(65)));
+        client.interactive_auth = true;
+        assert_eq!(client.completion_budget(1), None);
     }
 }

@@ -17,12 +17,19 @@ pub enum OutputFormat {
     Csv,
 }
 
-pub struct CliOutput(Option<Box<dyn CliOutputValue>>);
+pub struct CliOutput {
+    value: Option<Box<dyn CliOutputValue>>,
+    pub elapsed_duration_warn_threshold: Option<std::time::Duration>,
+}
 
 impl core::fmt::Debug for CliOutput {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("CliOutput")
-            .field("has_value", &self.0.is_some())
+            .field("has_value", &self.value.is_some())
+            .field(
+                "elapsed_duration_warn_threshold",
+                &self.elapsed_duration_warn_threshold,
+            )
             .finish()
     }
 }
@@ -41,16 +48,22 @@ struct FacetCliOutput<T> {
 
 impl CliOutput {
     #[must_use]
-    pub const fn none() -> Self {
-        Self(None)
+    pub const fn none(elapsed_duration_warn_threshold: Option<std::time::Duration>) -> Self {
+        Self {
+            value: None,
+            elapsed_duration_warn_threshold,
+        }
     }
 
     #[must_use]
-    pub fn facet<T>(value: T) -> Self
+    pub fn facet<T>(value: T, elapsed_duration_warn_threshold: Option<std::time::Duration>) -> Self
     where
         T: Facet<'static> + 'static,
     {
-        Self(Some(Box::new(FacetCliOutput { value })))
+        Self {
+            value: Some(Box::new(FacetCliOutput { value })),
+            elapsed_duration_warn_threshold,
+        }
     }
 
     /// # Errors
@@ -58,7 +71,7 @@ impl CliOutput {
     /// This function will return an error if the selected output format cannot be rendered
     /// or if the rendered output cannot be written to stdout.
     pub fn emit(self, requested_format: Option<OutputFormat>) -> eyre::Result<()> {
-        let Some(output) = self.0 else {
+        let Some(output) = self.value else {
             return Ok(());
         };
 
@@ -86,12 +99,6 @@ impl CliOutput {
     }
 }
 
-impl Default for CliOutput {
-    fn default() -> Self {
-        Self::none()
-    }
-}
-
 impl<T> CliOutputValue for FacetCliOutput<T>
 where
     T: Facet<'static> + 'static,
@@ -115,5 +122,29 @@ where
                 .wrap_err("failed to serialize command output as CSV")?,
         };
         Ok(Some(rendered))
+    }
+}
+
+#[cfg(test)]
+mod budget_tests {
+    use super::*;
+    #[derive(Facet)]
+    struct Report {
+        count: u64,
+    }
+    #[test]
+    fn budget_is_receipt_metadata_only() {
+        for budget in [None, Some(std::time::Duration::from_secs(7))] {
+            let output = CliOutput::facet(Report { count: 2 }, budget);
+            assert_eq!(output.elapsed_duration_warn_threshold, budget);
+            let value = output.value.unwrap();
+            let json = value.render(OutputFormat::Json, false).unwrap().unwrap();
+            let decoded: Report = facet_json::from_str(&json).unwrap();
+            assert_eq!(decoded.count, 2);
+            assert!(!json.contains("elapsed_duration"));
+            let csv = value.render(OutputFormat::Csv, false).unwrap().unwrap();
+            assert!(!csv.contains("elapsed_duration"));
+        }
+        assert!(CliOutput::none(None).value.is_none());
     }
 }

@@ -22,6 +22,6 @@ impl CacheOpenArgs {
                 crate::paths::CACHE_DIR.0.display()
             )
         })?;
-        Ok(CliOutput::none())
+        Ok(CliOutput::none(Some(std::time::Duration::from_secs(3))))
     }
 }

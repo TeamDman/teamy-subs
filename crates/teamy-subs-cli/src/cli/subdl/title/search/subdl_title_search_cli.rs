@@ -42,6 +42,6 @@ impl SubdlTitleSearchArgs {
                 tmdb_id: title.tmdb_id,
             })
             .collect::<Vec<_>>();
-        Ok(CliOutput::facet(rows))
+        Ok(CliOutput::facet(rows, client.completion_budget(1)))
     }
 }

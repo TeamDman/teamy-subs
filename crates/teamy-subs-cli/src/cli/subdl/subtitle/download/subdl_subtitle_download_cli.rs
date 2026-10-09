@@ -111,12 +111,15 @@ impl SubdlSubtitleDownloadArgs {
         })?;
         let path = output_dir.join(format!("{stem}.{language}.{extension}"));
         save_subtitle(&path, &subtitle, self.force)?;
-        Ok(CliOutput::facet(DownloadReport {
-            path: path.display().to_string(),
-            release_name,
-            language,
-            match_score,
-        }))
+        Ok(CliOutput::facet(
+            DownloadReport {
+                path: path.display().to_string(),
+                release_name,
+                language,
+                match_score,
+            },
+            client.completion_budget(2),
+        ))
     }
 }
 

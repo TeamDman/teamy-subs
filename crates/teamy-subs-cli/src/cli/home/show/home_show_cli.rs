@@ -18,8 +18,11 @@ impl HomeShowArgs {
     /// This function does not return any errors.
     #[expect(clippy::unused_async)]
     pub async fn invoke(self) -> Result<CliOutput> {
-        Ok(CliOutput::facet(HomeShowReport {
-            path: crate::paths::APP_HOME.display().to_string(),
-        }))
+        Ok(CliOutput::facet(
+            HomeShowReport {
+                path: crate::paths::APP_HOME.display().to_string(),
+            },
+            Some(std::time::Duration::from_secs(1)),
+        ))
     }
 }

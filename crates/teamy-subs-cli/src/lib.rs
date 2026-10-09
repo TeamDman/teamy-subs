@@ -2,6 +2,7 @@
 #![deny(clippy::disallowed_macros)]
 
 pub mod cli;
+pub mod elapsed_duration;
 pub mod logging_init;
 pub mod paths;
 #[cfg(windows)]
@@ -56,9 +57,24 @@ pub fn run(version: String, implementation_git_repo: &str, git_revision: &str) -
     };
 
     let output_format = cli.global_args.output_format;
-    let output = cli.invoke(cancellation_token.clone())?;
-    cancellation_token.bail_if_cancelled()?;
-    output.emit(output_format)?;
-    cancellation_token.bail_if_cancelled()?;
-    Ok(())
+    let command_name = cli.command.name();
+    let started = std::time::Instant::now();
+    tracing::debug!(command = command_name, "Dispatching command");
+    let result = (|| -> eyre::Result<()> {
+        let _command_span = tracing::info_span!("command", command = command_name).entered();
+        let output = cli.invoke(cancellation_token.clone())?;
+        let threshold = output.elapsed_duration_warn_threshold;
+        let result = cancellation_token
+            .bail_if_cancelled()
+            .and_then(|()| output.emit(output_format))
+            .and_then(|()| cancellation_token.bail_if_cancelled());
+        elapsed_duration::warn_if_exceeded(command_name, started.elapsed(), threshold);
+        result
+    })();
+    tracing::debug!(
+        command = command_name,
+        success = result.is_ok(),
+        "Command finished"
+    );
+    result
 }
